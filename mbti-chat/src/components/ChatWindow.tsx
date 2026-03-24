@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import TypingBubble from "./TypingBubble";
+import ProgressBar from "./ProgressBar";
+import ResultCard from "./ResultCard";
 
 interface Message {
   role: "user" | "assistant";
@@ -19,11 +22,26 @@ export default function ChatWindow() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<MBTIResult | null>(null);
   const [started, setStarted] = useState(false);
+  const [showResult, setShowResult] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const userMsgCount = messages.filter((m) => m.role === "user").length;
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    scrollToBottom();
+  }, [messages, loading, scrollToBottom]);
+
+  // Auto-focus input after assistant replies
+  useEffect(() => {
+    if (!loading && started && !showResult) {
+      inputRef.current?.focus();
+    }
+  }, [loading, started, showResult]);
 
   const startChat = async () => {
     setStarted(true);
@@ -37,7 +55,9 @@ export default function ChatWindow() {
       const data = await res.json();
       setMessages([{ role: "assistant", content: data.reply }]);
     } catch {
-      setMessages([{ role: "assistant", content: "Sorry, something went wrong. Please try again." }]);
+      setMessages([
+        { role: "assistant", content: "Sorry, something went wrong. Please try again." },
+      ]);
     }
     setLoading(false);
   };
@@ -62,7 +82,6 @@ export default function ChatWindow() {
       const updatedMessages = [...newMessages, assistantMsg];
       setMessages(updatedMessages);
 
-      // Check if assessment is complete
       if (data.reply.includes("[ASSESSMENT_COMPLETE]")) {
         await fetchResult(updatedMessages);
       }
@@ -84,8 +103,10 @@ export default function ChatWindow() {
       });
       const data = await res.json();
       setResult(data);
+      // Smooth transition delay
+      setTimeout(() => setShowResult(true), 1200);
     } catch {
-      // silently fail — user can still see chat
+      // silently fail
     }
   };
 
@@ -96,21 +117,31 @@ export default function ChatWindow() {
     }
   };
 
-  // Landing screen
+  const resetAll = () => {
+    setMessages([]);
+    setResult(null);
+    setStarted(false);
+    setShowResult(false);
+  };
+
+  // ──── Landing screen ────
   if (!started) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-4">
-        <div className="text-center max-w-md">
-          <h1 className="text-4xl font-bold text-indigo-700 mb-4">
-            MBTI Chat Assessment
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-4">
+        <div className="text-center max-w-md animate-fade-in">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+            <span className="text-3xl">💬</span>
+          </div>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-700 to-purple-600 bg-clip-text text-transparent mb-3">
+            MBTI Chat
           </h1>
-          <p className="text-gray-600 mb-8">
+          <p className="text-gray-500 mb-8 leading-relaxed">
             Discover your personality type through a natural conversation.
-            Answer a few questions and get your MBTI result!
+            Just chat with me and I&apos;ll figure out your MBTI!
           </p>
           <button
             onClick={startChat}
-            className="bg-indigo-600 text-white px-8 py-3 rounded-full text-lg font-medium hover:bg-indigo-700 transition-colors shadow-lg hover:shadow-xl"
+            className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-10 py-3.5 rounded-full text-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl active:scale-[0.97]"
           >
             Start Chat
           </button>
@@ -119,107 +150,120 @@ export default function ChatWindow() {
     );
   }
 
-  // Result screen
-  if (result) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full">
-          <h2 className="text-2xl font-bold text-center text-gray-800 mb-2">
-            Your MBTI Type
-          </h2>
-          <div className="text-6xl font-extrabold text-center text-indigo-600 my-4">
-            {result.type}
-          </div>
-          <p className="text-gray-600 text-center mb-6">{result.description}</p>
-
-          <div className="space-y-4">
-            {result.dimensions.map((dim) => (
-              <div key={dim.label}>
-                <div className="flex justify-between text-sm text-gray-500 mb-1">
-                  <span>{dim.left}</span>
-                  <span>{dim.right}</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div
-                    className="bg-indigo-500 h-3 rounded-full transition-all"
-                    style={{ width: `${dim.score}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={() => {
-              setMessages([]);
-              setResult(null);
-              setStarted(false);
-            }}
-            className="mt-8 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
+  // ──── Result screen ────
+  if (showResult && result) {
+    return <ResultCard result={result} onRetry={resetAll} />;
   }
 
-  // Chat screen
+  // ──── Chat screen ────
+  const isComplete = result !== null;
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b px-4 py-3 shadow-sm">
-        <h1 className="text-lg font-semibold text-indigo-700">
-          MBTI Chat Assessment
-        </h1>
+      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/60 px-4 py-3 sticky top-0 z-10">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
+              <span className="text-sm">🤖</span>
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold text-gray-800">
+                MBTI Assessment
+              </h1>
+              <p className="text-xs text-gray-400">
+                {isComplete ? "Analysis complete!" : loading ? "Typing..." : "Online"}
+              </p>
+            </div>
+          </div>
+          <ProgressBar current={userMsgCount} />
+        </div>
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                msg.role === "user"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white text-gray-800 border border-gray-200 shadow-sm"
-              }`}
-            >
-              {msg.content.replace("[ASSESSMENT_COMPLETE]", "").trim()}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+          {messages.map((msg, i) => {
+            const isUser = msg.role === "user";
+            const displayText = msg.content.replace("[ASSESSMENT_COMPLETE]", "").trim();
+
+            return (
+              <div
+                key={i}
+                className={`flex items-end gap-2 animate-message-in ${
+                  isUser ? "justify-end" : "justify-start"
+                }`}
+                style={{ animationDelay: `${i * 30}ms` }}
+              >
+                {/* Avatar — assistant only */}
+                {!isUser && (
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm">🤖</span>
+                  </div>
+                )}
+
+                {/* Bubble */}
+                <div
+                  className={`max-w-[75%] px-4 py-2.5 text-sm leading-relaxed ${
+                    isUser
+                      ? "bg-gradient-to-br from-indigo-600 to-indigo-500 text-white rounded-2xl rounded-br-md shadow-md shadow-indigo-200/50"
+                      : "bg-white text-gray-800 rounded-2xl rounded-bl-md border border-gray-100 shadow-sm"
+                  }`}
+                >
+                  {displayText}
+                </div>
+
+                {/* Avatar — user only */}
+                {isUser && (
+                  <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm text-white font-bold">U</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {loading && <TypingBubble />}
+
+          {/* Assessment complete transition */}
+          {isComplete && !showResult && (
+            <div className="flex justify-center py-4 animate-fade-in">
+              <div className="flex items-center gap-2 text-sm text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full">
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Analyzing your personality...
+              </div>
             </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-white text-gray-400 border border-gray-200 rounded-2xl px-4 py-2.5 text-sm shadow-sm">
-              Typing...
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
+          )}
+
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Input */}
-      <div className="bg-white border-t px-4 py-3">
+      <div className={`bg-white/80 backdrop-blur-md border-t border-gray-200/60 px-4 py-3 transition-opacity duration-500 ${isComplete ? "opacity-50 pointer-events-none" : ""}`}>
         <div className="flex gap-2 max-w-3xl mx-auto">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type your answer..."
-            className="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            disabled={loading}
+            className="flex-1 bg-gray-100 border-0 rounded-full px-5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors placeholder:text-gray-400"
+            disabled={loading || isComplete}
           />
           <button
             onClick={sendMessage}
-            disabled={loading || !input.trim()}
-            className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={loading || !input.trim() || isComplete}
+            className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:from-indigo-700 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-90 shadow-md"
           >
-            Send
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 2L11 13" />
+              <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+            </svg>
           </button>
         </div>
       </div>
